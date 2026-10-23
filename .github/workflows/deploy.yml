@@ -9,6 +9,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read
 
 concurrency:
   group: "pages"
@@ -59,6 +60,31 @@ jobs:
         uses: actions/configure-pages@v5
         with:
           enablement: true
+
+      # While the repository still uses "Deploy from a branch" as its Pages
+      # source, GitHub additionally runs the legacy "pages build and deployment"
+      # workflow on every push. That build publishes the raw branch, i.e. the
+      # Git LFS pointer files, and it takes longer than this workflow — if it
+      # lands after our deployment the site serves 131-byte pointers and freezes
+      # on a blank loading screen. Wait for it (a no-op once the source is set to
+      # "GitHub Actions"), so this artifact is always the newest deployment.
+      - name: Wait for the legacy branch deployment to finish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+        run: |
+          for attempt in $(seq 1 40); do
+            pending=$(gh run list --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" \
+              --limit 50 --json name,status \
+              --jq '[.[] | select(.name == "pages build and deployment" and .status != "completed")] | length')
+            if [ "$pending" = "0" ]; then
+              echo "legacy Pages build already finished"
+              exit 0
+            fi
+            echo "attempt $attempt: waiting for the legacy Pages build"
+            sleep 15
+          done
+          echo "::warning::legacy Pages build did not finish in time; deploying anyway"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
