@@ -92,7 +92,7 @@ body {
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
-<script>if('serviceWorker' in navigator){window.addEventListener('load',function(){try{navigator.serviceWorker.register('stream-cache-sw.js');}catch(e){}});}</script>
+<script>if('serviceWorker' in navigator){try{navigator.serviceWorker.register('stream-cache-sw.js');}catch(e){}}</script>
 	</head>
 	<body>
 		<canvas id="canvas">
@@ -197,7 +197,38 @@ const engine = new Engine(GODOT_CONFIG);
 			const missingMsg = 'Error\nThe following features required to run Godot projects on the Web are missing:\n';
 			displayFailureNotice(missingMsg + missing.join('\n'));
 		}
+	} else if (!window.crossOriginIsolated) {
+		// Godot's WASM build transfers SharedArrayBuffers to its worker pool, so
+		// the page must be crossOriginIsolated (COOP/COEP). GitHub Pages and
+		// other static hosts cannot send those headers; stream-cache-sw.js
+		// injects them, and we reload once the worker controls this document.
+		// Without this the download reaches 100% and the page then freezes with
+		// "SharedArrayBuffer transfer requires self.crossOriginIsolated".
+		const coiKey = 'il_coi_reloads';
+		const coiReloads = parseInt(sessionStorage.getItem(coiKey) || '0', 10);
+		if ('serviceWorker' in navigator && coiReloads < 2) {
+			sessionStorage.setItem(coiKey, String(coiReloads + 1));
+			setStatusMode('notice');
+			setStatusNotice('正在啟用跨源隔離（Service Worker）…\n完成後會自動重新整理。');
+			navigator.serviceWorker.register('stream-cache-sw.js').then(function (registration) {
+				if (navigator.serviceWorker.controller || registration.active) {
+					window.location.reload();
+					return;
+				}
+				navigator.serviceWorker.addEventListener('controllerchange', function () {
+					window.location.reload();
+				});
+				window.setTimeout(function () {
+					window.location.reload();
+				}, 4000);
+			}, function (err) {
+				displayFailureNotice('無法啟用跨源隔離：' + err.message);
+			});
+		} else {
+			displayFailureNotice('此瀏覽器無法提供 crossOriginIsolated（COOP/COEP），因此無法執行 WebAssembly 版本。\n請改用 Chrome / Edge，並確認 Service Worker 未被停用。');
+		}
 	} else {
+		sessionStorage.removeItem('il_coi_reloads');
 		setStatusMode('progress');
 		engine.startGame({
 			'onProgress': function (current, total) {

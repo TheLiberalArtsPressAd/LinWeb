@@ -25,12 +25,46 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
+
+      # GitHub Pages serves the files verbatim; it does not resolve Git LFS.
+      # If the LFS download did not materialise the engine files the site would
+      # show the raw pointer text ("version https://git-lfs.github.com/...")
+      # and freeze on a blank loading screen, so fail loudly instead.
+      - name: Verify engine files are real (not LFS pointers)
+        run: |
+          set -eu
+          for f in index.html index.js index.wasm index.pck stream-cache-sw.js; do
+            if [ ! -f "$f" ]; then
+              echo "::error file=$f::missing from the deployment"
+              exit 1
+            fi
+            if head -c 100 "$f" | grep -q "git-lfs.github.com"; then
+              echo "::error file=$f::still a Git LFS pointer, Pages cannot serve it"
+              exit 1
+            fi
+          done
+          ls -l index.pck index.wasm
+
+      # stream-lod/ holds the reduced-size page tiles generated for the web
+      # build. Static hosts cannot run serve_web.py's on-the-fly LOD
+      # conversion, so expose them under the paths the client actually
+      # requests (stream/maps/<key>/pages/*.webp).
+      - name: Overlay reduced-size stream pages
+        run: |
+          if [ -d stream-lod ]; then
+            cp -a stream-lod/. stream/
+          fi
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

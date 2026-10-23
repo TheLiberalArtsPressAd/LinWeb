@@ -6,3 +6,8 @@
 *.pck filter=lfs diff=lfs merge=lfs -text
 *.wasm filter=lfs diff=lfs merge=lfs -text
 *.js filter=lfs diff=lfs merge=lfs -text
+
+# Streamed map data is small per map (a few MB) and must be committed as-is:
+# GitHub Pages cannot resolve LFS pointers, and the deploy workflow materialises
+# everything else from LFS during checkout.
+stream/maps/** -filter -diff -merge -text
