@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>clear</title></head>
+<body>
+<pre id="out">clearing...</pre>
+<script>
+(async () => {
+  const lines = [];
+  try {
+    localStorage.clear();
+    sessionStorage.clear();
+    lines.push('web storage cleared');
+  } catch (e) { lines.push('web storage: ' + e); }
+  try {
+    if (self.caches) {
+      for (const key of await caches.keys()) {
+        await caches.delete(key);
+        lines.push('cache deleted: ' + key);
+      }
+    }
+  } catch (e) { lines.push('caches: ' + e); }
+  try {
+    const dbs = await indexedDB.databases();
+    for (const db of dbs) {
+      await new Promise((resolve) => {
+        const req = indexedDB.deleteDatabase(db.name);
+        req.onsuccess = req.onerror = req.onblocked = () => resolve();
+      });
+      lines.push('idb deleted: ' + db.name);
+    }
+  } catch (e) { lines.push('idb: ' + e); }
+  document.getElementById('out').textContent = lines.join('\n') + '\nDONE';
+})();
+</script>
+</body>
+</html>
