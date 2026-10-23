@@ -64,10 +64,11 @@ jobs:
       # While the repository still uses "Deploy from a branch" as its Pages
       # source, GitHub additionally runs the legacy "pages build and deployment"
       # workflow on every push. That build publishes the raw branch, i.e. the
-      # Git LFS pointer files, and it takes longer than this workflow — if it
-      # lands after our deployment the site serves 131-byte pointers and freezes
-      # on a blank loading screen. Wait for it (a no-op once the source is set to
-      # "GitHub Actions"), so this artifact is always the newest deployment.
+      # Git LFS pointer files; whichever deployment lands last wins, so a legacy
+      # build finishing after ours makes the site serve 131-byte pointers and
+      # freeze on a blank loading screen. Wait for it (a no-op once the source is
+      # set to "GitHub Actions"), so this artifact is always the newest
+      # deployment.
       - name: Wait for the legacy branch deployment to finish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
