@@ -46,15 +46,26 @@ jobs:
           done
           ls -l index.pck index.wasm
 
-      # stream-lod/ holds the reduced-size page tiles generated for the web
-      # build. Static hosts cannot run serve_web.py's on-the-fly LOD
-      # conversion, so expose them under the paths the client actually
-      # requests (stream/maps/<key>/pages/*.webp).
-      - name: Overlay reduced-size stream pages
+      # The published site is assembled explicitly instead of uploading the
+      # repository root: mapdata/*.zip holds ~570 MB of per-map stream data
+      # (manifests, downscaled page tiles, previews) that must not be published
+      # as downloads, and the repository also carries tooling that has no
+      # business being on the site.
+      - name: Assemble site
         run: |
-          if [ -d stream-lod ]; then
-            cp -a stream-lod/. stream/
-          fi
+          set -eu
+          mkdir -p _site
+          cp -a index.html index.js index.pck index.wasm \
+                index.png index.icon.png index.apple-touch-icon.png \
+                index.audio.worklet.js index.audio.position.worklet.js \
+                stream-cache-sw.js coi-serviceworker.js clear.html .nojekyll _site/
+          mkdir -p _site/stream
+          cp -a stream/. _site/stream/
+          for archive in mapdata/*.zip; do
+            unzip -q -o "$archive" -d _site/stream
+          done
+          ls _site/stream/maps | wc -l
+          du -sh _site
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -90,7 +101,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '_site'
 
       - name: Deploy to GitHub Pages
         id: deployment

@@ -11,3 +11,8 @@
 # GitHub Pages cannot resolve LFS pointers, and the deploy workflow materialises
 # everything else from LFS during checkout.
 stream/maps/** -filter -diff -merge -text
+
+# Map stream archives (manifests + downscaled tiles + previews) are unpacked
+# by the deploy workflow. Keep them out of LFS: the free LFS quota is already
+# used by the engine binaries and ~570 MB per deploy would exhaust it.
+mapdata/** -filter -diff -merge -text
