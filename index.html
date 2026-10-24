@@ -93,6 +93,42 @@ body {
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
 <script>if('serviceWorker' in navigator){try{navigator.serviceWorker.register('stream-cache-sw.js');}catch(e){}}</script>
+<script>
+/*
+ * GitHub Pages keeps the engine binaries gzip-compressed (index.pck.gz /
+ * index.wasm.gz) so the published site stays under the 1 GB cap. The deploy
+ * workflow writes those members and leaves tiny placeholders at the plain
+ * names. Redirect the engine's normal requests to the .gz members and decode
+ * them in the browser; when no .gz is deployed (local dev, serve_web.py) this
+ * silently falls back to the uncompressed file.
+ */
+(function () {
+	if (typeof DecompressionStream === 'undefined') {
+		console.warn('[size] DecompressionStream unavailable; using uncompressed engine files.');
+		return;
+	}
+	var originalFetch = window.fetch.bind(window);
+	window.fetch = function (resource, init) {
+		var url = typeof resource === 'string' ? resource : (resource && resource.url) || '';
+		if (!/\.(?:wasm|pck)(?:[?#]|$)/i.test(url)) return originalFetch(resource, init);
+		var u = new URL(url, location.href);
+		if (/\.gz$/i.test(u.pathname)) return originalFetch(resource, init);
+		u.pathname += '.gz';
+		return originalFetch(u.toString(), init).then(function (gz) {
+			if (!gz.ok) return originalFetch(resource, init);
+			var headers = new Headers(gz.headers);
+			headers.set('Content-Type', /\.wasm\.gz$/i.test(u.pathname) ? 'application/wasm' : 'application/octet-stream');
+			headers.delete('Content-Encoding');
+			headers.delete('Content-Length');
+			var encoding = (gz.headers.get('content-encoding') || '').toLowerCase();
+			var body = encoding === 'gzip' ? gz.body : gz.body.pipeThrough(new DecompressionStream('gzip'));
+			return new Response(body, { status: gz.status, statusText: gz.statusText, headers: headers });
+		}).catch(function () {
+			return originalFetch(resource, init);
+		});
+	};
+})();
+</script>
 	</head>
 	<body>
 		<canvas id="canvas">

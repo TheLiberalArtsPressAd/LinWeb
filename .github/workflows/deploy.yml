@@ -54,18 +54,37 @@ jobs:
       - name: Assemble site
         run: |
           set -eu
+          # The published site must stay under the GitHub Pages 1 GB cap. The two
+          # engine binaries are ~317 MB uncompressed but only ~165 MB gzipped, so
+          # ship them as .gz and let index.html's fetch shim decompress them.
+          gzip -9 -c index.pck > index.pck.gz
+          gzip -9 -c index.wasm > index.wasm.gz
+          ls -l index.pck.gz index.wasm.gz
+
           mkdir -p _site
-          cp -a index.html index.js index.pck index.wasm \
+          cp -a index.html index.js index.pck.gz index.wasm.gz \
                 index.png index.icon.png index.apple-touch-icon.png \
                 index.audio.worklet.js index.audio.position.worklet.js \
                 stream-cache-sw.js coi-serviceworker.js clear.html .nojekyll _site/
+          # Keep the plain names present but tiny: the Pages artifact linter and
+          # the shim's no-.gz fallback both reference them.
+          printf 'placeholder: the browser fetches index.pck.gz\n' > _site/index.pck
+          printf 'placeholder: the browser fetches index.wasm.gz\n' > _site/index.wasm
+
           mkdir -p _site/stream
           cp -a stream/. _site/stream/
           for archive in mapdata/*.zip; do
             unzip -q -o "$archive" -d _site/stream
           done
           ls _site/stream/maps | wc -l
+
+          bytes=$(du -sb _site | cut -f1)
+          echo "site size: $bytes bytes ($((bytes / 1024 / 1024)) MiB)"
           du -sh _site
+          if [ "$bytes" -ge 1000000000 ]; then
+            echo "::error::_site is $bytes bytes, over the 1 GB GitHub Pages limit"
+            exit 1
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
