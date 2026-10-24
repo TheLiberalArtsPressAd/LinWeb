@@ -78,6 +78,16 @@ jobs:
           done
           ls _site/stream/maps | wc -l
 
+          # WebAssetCache asks for <name>.gz first for every streamed .json/.bin
+          # (terrain/occlusion grids, map metadata, atlas JSON). mapdata/maps-99.zip
+          # carries those gzip members; drop the uncompressed originals so the
+          # published site stays under the 1 GB cap. Files without a .gz sibling
+          # are left untouched and still load through the plain-name fallback.
+          find _site/stream -type f \( -name '*.json' -o -name '*.bin' \) -print0 |
+            while IFS= read -r -d '' f; do
+              if [ -f "$f.gz" ]; then rm -f "$f"; fi
+            done
+
           bytes=$(du -sb _site | cut -f1)
           echo "site size: $bytes bytes ($((bytes / 1024 / 1024)) MiB)"
           du -sh _site
