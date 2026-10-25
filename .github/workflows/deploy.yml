@@ -73,10 +73,27 @@ jobs:
 
           mkdir -p _site/stream
           cp -a stream/. _site/stream/
-          for archive in mapdata/*.zip; do
-            unzip -q -o "$archive" -d _site/stream
-          done
+          # Info-ZIP converts entry names from the archive's charset to the process
+          # charset, and the runner's locale is not UTF-8, so it replaced every
+          # non-ASCII byte with '?': the 165 Chinese-named area backgrounds landed
+          # as "?жЦ??...jpg" and 404'd, which is what made 奇岩 render gray. Python's
+          # zipfile honours the UTF-8 flag and writes the stored names verbatim.
+          python3 - <<'PY'
+          import glob
+          import zipfile
+
+          for archive in sorted(glob.glob('mapdata/*.zip')):
+              with zipfile.ZipFile(archive) as z:
+                  z.extractall('_site/stream')
+
+          # A mangled name is never valid here, so fail loudly instead of
+          # deploying art the client will 404 on.
+          bad = [p for p in glob.glob('_site/stream/**/*', recursive=True) if '?' in p]
+          if bad:
+              raise SystemExit(f'{len(bad)} mangled stream paths, e.g. {bad[0]}')
+          PY
           ls _site/stream/maps | wc -l
+          ls _site/stream/area/1920x1080 | wc -l
 
           # WebAssetCache asks for <name>.gz first for every streamed .json/.bin
           # (terrain/occlusion grids, map metadata, atlas JSON). mapdata/maps-99.zip
