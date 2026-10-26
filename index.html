@@ -145,9 +145,54 @@ body {
 			<div id="status-notice"></div>
 		</div>
 
+<script>
+(function () {
+	var MAX_EVENTS = 40;
+	var events = 0;
+	function note(text) {
+		if (events++ >= MAX_EVENTS) return;
+		try { console.error('[Freeze] ' + text); } catch (e) {}
+	}
+	function nowMs() {
+		return (window.performance && performance.now) ? performance.now() : Date.now();
+	}
+	var last = nowMs();
+	setInterval(function () {
+		var now = nowMs();
+		var gap = now - last;
+		last = now;
+		if (gap < 1000 || gap > 60000) return;
+		if (document.visibilityState === 'hidden') return;
+		note('js-gap=' + Math.round(gap) + 'ms');
+	}, 250);
+
+	var canvas = document.getElementById('canvas');
+	if (!canvas) return;
+	canvas.addEventListener('webglcontextlost', function () {
+		note('webgl-context-lost');
+		showContextLost();
+	}, false);
+	canvas.addEventListener('webglcontextrestored', function () {
+		note('webgl-context-restored');
+	}, false);
+
+	function showContextLost() {
+		if (document.getElementById('gl-lost')) return;
+		var box = document.createElement('div');
+		box.id = 'gl-lost';
+		box.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(8,10,14,.92);color:#e6edf3;font:14px/1.6 system-ui,sans-serif;text-align:center;padding:24px;';
+		box.innerHTML = '<div><div style="font-size:18px;font-weight:600;margin-bottom:8px">畫面已停止更新</div>'
+			+ '<div style="color:#9fb0c3;margin-bottom:14px">顯示卡資源不足或驅動程式重設了 WebGL 內容，遊戲需要重新載入。</div>'
+			+ '<button id="gl-reload" style="font:inherit;padding:8px 18px;border-radius:6px;border:1px solid #3b4a5c;background:#1f6feb;color:#fff;cursor:pointer">重新載入</button></div>';
+		document.body.appendChild(box);
+		var btn = document.getElementById('gl-reload');
+		if (btn) btn.onclick = function () { window.location.reload(); };
+	}
+})();
+</script>
 		<script src="index.js"></script>
 		<script>
-const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":248833336,"index.wasm":56194770},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":248834228,"index.wasm":56194770},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
 
