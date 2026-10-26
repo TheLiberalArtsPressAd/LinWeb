@@ -156,6 +156,171 @@ PROBE = """<script>
 </script>
 """
 
+CRASH_BLOCK = """<script>
+/*
+ * Crash containment / auto-recovery.
+ *
+ * The .NET WASM runtime cannot unwind an exception that escapes an engine
+ * callback: it calls abort(), the canvas stops painting, and the page itself
+ * stays responsive, which is the "frozen screen" players report. Two sources
+ * feed this block:
+ *   - window.__llCrash(...) from CrashGuard in C# (caught in _Process/_Input),
+ *   - the listeners and heartbeat below, for aborts nothing managed survives
+ *     (OOM, stack overflow, native assert).
+ * Either way the player gets an explanation and an automatic reload back to
+ * the autosaved character instead of a dead screen. Reloads are capped so a
+ * reproducible startup crash cannot turn into an endless loop.
+ */
+(function () {
+\tvar RECOVER_MAX = 3;
+\tvar RECOVER_WINDOW = 10 * 60 * 1000;
+\tvar recovering = false;
+
+\tfunction overlay(title, body, buttons) {
+\t\tvar box = document.getElementById('crash-box');
+\t\tif (!box) {
+\t\t\tbox = document.createElement('div');
+\t\t\tbox.id = 'crash-box';
+\t\t\tbox.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(8,10,14,.94);color:#e6edf3;font:14px/1.7 system-ui,-apple-system,"Noto Sans TC",sans-serif;text-align:center;padding:24px;';
+\t\t\t(document.body || document.documentElement).appendChild(box);
+\t\t}
+\t\tbox.innerHTML = '<div style="max-width:520px">'
+\t\t\t+ '<div style="font-size:18px;font-weight:600;margin-bottom:10px">' + title + '</div>'
+\t\t\t+ '<div style="color:#9fb0c3;white-space:pre-wrap">' + body + '</div>'
+\t\t\t+ '<div id="crash-actions" style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap"></div>'
+\t\t\t+ '</div>';
+\t\tvar host = document.getElementById('crash-actions');
+\t\t(buttons || []).forEach(function (b) {
+\t\t\tvar el = document.createElement('button');
+\t\t\tel.textContent = b.label;
+\t\t\tel.style.cssText = 'font:inherit;padding:8px 18px;border-radius:6px;border:1px solid #3b4a5c;background:' + (b.primary ? '#1f6feb' : '#21262d') + ';color:#fff;cursor:pointer';
+\t\t\tel.onclick = b.onClick;
+\t\t\thost.appendChild(el);
+\t\t});
+\t\tbox.style.display = 'flex';
+\t}
+
+\tfunction hideOverlay() {
+\t\tvar box = document.getElementById('crash-box');
+\t\tif (box) box.style.display = 'none';
+\t}
+
+\tfunction lastCrashLine() {
+\t\ttry {
+\t\t\tvar entries = JSON.parse(localStorage.getItem('il_crash_log') || '[]');
+\t\t\tif (!entries.length) return '';
+\t\t\tvar e = entries[entries.length - 1];
+\t\t\treturn '\\n\\n最後錯誤：' + e.where + ' ' + e.type + ': ' + e.message;
+\t\t} catch (err) {
+\t\t\treturn '';
+\t\t}
+\t}
+
+\tfunction recoverState() {
+\t\ttry {
+\t\t\tvar state = JSON.parse(sessionStorage.getItem('il_recover') || 'null');
+\t\t\tvar now = Date.now();
+\t\t\tif (!state || typeof state.n !== 'number' || now - state.t > RECOVER_WINDOW) {
+\t\t\t\tstate = { n: 0, t: now };
+\t\t\t}
+\t\t\treturn state;
+\t\t} catch (err) {
+\t\t\treturn { n: 0, t: Date.now() };
+\t\t}
+\t}
+
+\tfunction showExhausted(reason) {
+\t\toverlay('遊戲無法自動恢復', '已連續重新載入 ' + RECOVER_MAX + ' 次仍未恢復。'
+\t\t\t+ '\\n請按「重新載入」再試一次；若持續發生，請把下方訊息回報給開發者。'
+\t\t\t+ lastCrashLine() + '\\n（' + reason + '）',
+\t\t\t[{ label: '重新載入', primary: true, onClick: function () {
+\t\t\t\ttry { sessionStorage.removeItem('il_recover'); } catch (err) {}
+\t\t\t\twindow.location.reload();
+\t\t\t} }, { label: '繼續等待', onClick: hideOverlay }]);
+\t}
+
+\tfunction recover(reason, detail) {
+\t\tif (recovering) return;
+\t\tvar state = recoverState();
+\t\tif (state.n >= RECOVER_MAX) {
+\t\t\tshowExhausted(reason);
+\t\t\treturn;
+\t\t}
+\t\trecovering = true;
+\t\tstate.n++;
+\t\ttry { sessionStorage.setItem('il_recover', JSON.stringify(state)); } catch (err) {}
+\t\ttry { console.warn('[Recover] ' + reason + ' (' + detail + ') attempt ' + state.n + '/' + RECOVER_MAX); } catch (err) {}
+\t\toverlay('畫面已中止，正在恢復', '遊戲會自動重新載入，回到最近一次自動儲存的進度。'
+\t\t\t+ '\\n（' + reason + (detail ? ': ' + detail : '') + '）', []);
+\t\twindow.setTimeout(function () { window.location.reload(); }, 1200);
+\t}
+
+\twindow.__llCrash = function (p) {
+\t\tp = p || {};
+\t\ttry {
+\t\t\tvar entries = JSON.parse(localStorage.getItem('il_crash_log') || '[]');
+\t\t\tentries.push({ at: new Date().toISOString(), where: p.where, type: p.type, message: p.message, count: p.count });
+\t\t\tlocalStorage.setItem('il_crash_log', JSON.stringify(entries.slice(-10)));
+\t\t} catch (err) {}
+\t\ttry { console.warn('[Crash] ' + p.where + ' ' + p.type + ': ' + p.message + (p.stack ? '\\n' + p.stack : '')); } catch (err) {}
+\t\tif (p.fatal) {
+\t\t\trecover('callback-failure', p.where + ' x' + p.count);
+\t\t\treturn;
+\t\t}
+\t\toverlay('已攔截一個錯誤', '遊戲已自動存檔並繼續執行。'
+\t\t\t+ '\\n若畫面停了下來，按「重新載入」即可回到進度。\\n\\n'
+\t\t\t+ p.where + ' ' + p.type + ': ' + p.message,
+\t\t\t[{ label: '繼續遊戲', primary: true, onClick: hideOverlay },
+\t\t\t { label: '重新載入', onClick: function () { window.location.reload(); } }]);
+\t};
+
+\tfunction looksFatal(text) {
+\t\treturn /RuntimeError|unreachable|Aborted\\(\\)|out of memory|memory access out of bounds|table index is out of bounds|Cannot enlarge memory/i.test(String(text || ''));
+\t}
+
+\twindow.addEventListener('error', function (ev) {
+\t\tvar text = (ev && (ev.message || (ev.error && ev.error.message))) || '';
+\t\tif (looksFatal(text)) recover('js-error', String(text).slice(0, 120));
+\t}, false);
+
+\twindow.addEventListener('unhandledrejection', function (ev) {
+\t\tvar reason = ev && ev.reason;
+\t\tvar text = reason && (reason.message || reason);
+\t\tif (looksFatal(text)) recover('js-rejection', String(text).slice(0, 120));
+\t}, false);
+
+\t// Godot prints the raw wasm abort banner through console.error and keeps
+\t// going, so an uncaught-exception listener never sees it.
+\tvar originalConsoleError = console.error.bind(console);
+\tconsole.error = function () {
+\t\ttry {
+\t\t\tif (!recovering) {
+\t\t\t\tvar text = Array.prototype.slice.call(arguments).join(' ');
+\t\t\t\tif (looksFatal(text)) recover('console-abort', text.slice(0, 120));
+\t\t\t}
+\t\t} catch (err) {}
+\t\treturn originalConsoleError.apply(null, arguments);
+\t};
+
+\t// Heartbeat: ArpgEngineScreen stamps window.__llBeat while its main loop is
+\t// alive and clears __llBeatArmed when it leaves the tree (menus, loading).
+\t// Silence beyond the limit means no frames are being produced, i.e. the
+\t// frozen canvas players report. The limit is generous: a big map can stall
+\t// the first frames for several seconds on a software renderer, and a forced
+\t// reload is only worth it once the screen is clearly dead.
+\tvar HEARTBEAT_LIMIT = 45000;
+\twindow.setInterval(function () {
+\t\tif (recovering || document.visibilityState === 'hidden') return;
+\t\tif (!window.__llBeatArmed) return;
+\t\tvar beat = Number(window.__llBeat || 0);
+\t\tif (!beat) return;
+\t\tvar stalled = Date.now() - beat;
+\t\tif (stalled > HEARTBEAT_LIMIT) recover('heartbeat-stall', Math.round(stalled / 1000) + 's');
+\t}, 2000);
+})();
+</script>
+"""
+
 SIZES_RE = re.compile(r'"fileSizes":\{"index\.pck":\d+,"index\.wasm":\d+\}')
 
 
@@ -202,6 +367,12 @@ def main() -> int:
         if html.count(PROBE_ANCHOR) != 1:
             raise SystemExit("could not locate the index.js script tag")
         html = html.replace(PROBE_ANCHOR, PROBE + PROBE_ANCHOR, 1)
+
+    # 3b. Crash containment / auto-recovery, immediately after the freeze probes.
+    if "__llCrash" not in html:
+        if html.count(PROBE_ANCHOR) != 1:
+            raise SystemExit("could not locate the index.js script tag")
+        html = html.replace(PROBE_ANCHOR, CRASH_BLOCK + PROBE_ANCHOR, 1)
 
     # 4. Report the sizes that are actually deployed (progress bar / cache).
     sizes = '"fileSizes":{"index.pck":%d,"index.wasm":%d}' % (pck.stat().st_size, wasm.stat().st_size)

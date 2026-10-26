@@ -55,8 +55,9 @@ jobs:
         run: |
           set -eu
           # The published site must stay under the GitHub Pages 1 GB cap. The two
-          # engine binaries are ~317 MB uncompressed but only ~165 MB gzipped, so
-          # ship them as .gz and let index.html's fetch shim decompress them.
+          # engine binaries are ~305 MB uncompressed (249 MB trimmed pack plus
+          # 56 MB wasm) but only ~161 MB gzipped (~147 MB plus ~14 MB), so ship
+          # them as .gz and let index.html's fetch shim decompress them.
           gzip -9 -c index.pck > index.pck.gz
           gzip -9 -c index.wasm > index.wasm.gz
           ls -l index.pck.gz index.wasm.gz
@@ -111,6 +112,12 @@ jobs:
           if [ "$bytes" -ge 1000000000 ]; then
             echo "::error::_site is $bytes bytes, over the 1 GB GitHub Pages limit"
             exit 1
+          fi
+          # Leave a visible warning well before the hard cap: the stream tree is
+          # ~977 MB (du counts directory entries too), so a single large
+          # re-export can cross the limit unnoticed.
+          if [ "$bytes" -ge 985000000 ]; then
+            echo "::warning::_site is $bytes bytes, within 15 MB of the 1 GB Pages limit"
           fi
 
       - name: Setup Pages
