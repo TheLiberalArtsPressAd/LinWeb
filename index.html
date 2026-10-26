@@ -149,14 +149,17 @@ body {
 (function () {
 	var MAX_EVENTS = 40;
 	var events = 0;
+	var t0 = 0;
 	function note(text) {
 		if (events++ >= MAX_EVENTS) return;
-		try { console.error('[Freeze] ' + text); } catch (e) {}
+		var secs = t0 ? ((nowMs() - t0) / 1000).toFixed(1) : '?';
+		try { console.error('[Freeze] ' + text + ' t=' + secs + 's'); } catch (e) {}
 	}
 	function nowMs() {
 		return (window.performance && performance.now) ? performance.now() : Date.now();
 	}
-	var last = nowMs();
+	t0 = nowMs();
+	var last = t0;
 	setInterval(function () {
 		var now = nowMs();
 		var gap = now - last;

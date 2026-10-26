@@ -110,14 +110,17 @@ PROBE = """<script>
 (function () {
 \tvar MAX_EVENTS = 40;
 \tvar events = 0;
+\tvar t0 = 0;
 \tfunction note(text) {
 \t\tif (events++ >= MAX_EVENTS) return;
-\t\ttry { console.error('[Freeze] ' + text); } catch (e) {}
+\t\tvar secs = t0 ? ((nowMs() - t0) / 1000).toFixed(1) : '?';
+\t\ttry { console.error('[Freeze] ' + text + ' t=' + secs + 's'); } catch (e) {}
 \t}
 \tfunction nowMs() {
 \t\treturn (window.performance && performance.now) ? performance.now() : Date.now();
 \t}
-\tvar last = nowMs();
+\tt0 = nowMs();
+\tvar last = t0;
 \tsetInterval(function () {
 \t\tvar now = nowMs();
 \t\tvar gap = now - last;
